@@ -71,7 +71,7 @@ Acessíveis do script do hub (verificado no source v1.2.0):
 ## Persistência entre servidores sem multiplicar painéis
 
 <Warning>
-  Hub persistente via <Code>queue_on_teleport</Code> multiplica painéis exponencialmente
+  Hub persistente via `queue_on_teleport` multiplica painéis exponencialmente
   (1→2→4→8 por troca de mapa). Três causas compostas: (a) a trava de instância única registrava
   só no FIM do build, então loaders simultâneos passavam pelo check; (b) o callback do toggle
   de persistência re-queueava, e o autoLoad re-dispara esse callback em toda janela nova;

@@ -43,7 +43,7 @@ espToggle:Set(false, true) -- move UI silenciosamente
 
 | Prop | Tipo | Padrão | Nota |
 |---|---|---|---|
-| `range` | { number } | `{0, 100}` | `{min, max}` |
+| `range` | `{ number }` | `{0, 100}` | `{min, max}` |
 | `increment` | number | `1` | passo contado do min; os dois bounds continuam alcançáveis |
 | `value` | number | `min` | valor inicial |
 | `suffix` | string | — | unidade exibida |
@@ -66,9 +66,9 @@ tab:CreateSlider({
 
 | Prop | Tipo | Padrão | Nota |
 |---|---|---|---|
-| `options` | { string } | `{}` | as escolhas |
+| `options` | `{ string }` | `{}` | as escolhas |
 | `multiSelect` | boolean | `false` | vários de uma vez |
-| `value` | string \| { string } | — | string no single, tabela no multi |
+| `value` | string \| `{ string }` | — | string no single, tabela no multi |
 | `placeholder` | string | `"None"` | quando nada selecionado |
 
 Handle: `.value` é **sempre tabela**, mesmo em single mode — a escolha é a primeira entrada. Só o callback desembrulha pra string crua no single. No multi o callback recebe uma **cópia**; editar a cópia não afeta o dropdown.

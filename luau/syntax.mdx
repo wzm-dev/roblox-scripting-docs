@@ -17,8 +17,14 @@ print(msg) -- hello Eodraxkk, ping: 35ms
 
 Regras:
 
-- `` `{{ `` dentro da string é **erro de parse** — escape com `\{`.
-- Como argumento de chamada, a string interpolada precisa de parênteses: `f((`x`))`, não `` f(`x`) ``.
+- Dois caracteres `{` colados (`{{`) dentro da string interpolada são **erro de parse** — escape com `\{`.
+- Como argumento de chamada, a string interpolada precisa de parênteses externos:
+
+```lua
+local function f(s) return s end
+f((`x`))   -- ok: com os parênteses externos
+-- f(`x`)  -- erro de parse: forma curta sem parênteses
+```
 
 ## `continue`
 

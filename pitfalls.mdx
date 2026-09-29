@@ -11,7 +11,7 @@ Cada entrada aqui é um bug real, com causa raiz técnica e a correção. Navegu
 
 **`continue` no fim do bloco.** É keyword contextual e precisa ser a última declaração do bloco; em `repeat..until` não pode pular um `local` usado na condição.
 
-**`` `{{ `` na string interpolada é erro de parse** — escape com `\{`. String interpolada como argumento de chamada exige parênteses: `f((`x`))`.
+**`{{` na string interpolada é erro de parse** — escape com `\{`. String interpolada como argumento de chamada exige os parênteses externos.
 
 **Casting multi-retorno:** `::` mantém só o primeiro valor.
 
