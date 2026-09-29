@@ -57,14 +57,29 @@
   },
   "footer": {
     "socials": {
-      "discord": "https://discord.gg/DmdTDgJc",
-      "github": "https://github.com/wzm-dev"
+      "discord": "https://discord.gg/FMxDa6ghND"
     }
   },
   "background": {
-    "decoration": "windows"
+    "decoration": "gradient"
   },
   "logo": {
+    "light": "/images/ChatGPTImageSep28,2026,10_59_13PM.png",
+    "dark": "/images/ChatGPTImageSep28,2026,10_59_13PM.png"
+  },
+  "navbar": {
+    "links": [
+      {
+        "href": "https://github.com/wzm-dev",
+        "label": "wzm-dev - github"
+      },
+      {
+        "href": "https://github.com/Einzber4",
+        "label": "Einzbern - github"
+      }
+    ]
+  },
+  "favicon": {
     "light": "/images/ChatGPTImageSep28,2026,10_59_13PM.png",
     "dark": "/images/ChatGPTImageSep28,2026,10_59_13PM.png"
   }
