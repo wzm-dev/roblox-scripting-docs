@@ -1,6 +1,6 @@
 {
   "$schema": "https://mintlify.com/docs.json",
-  "name": "Roblox Scripting Docs",
+  "name": "Strelitzia - Luau docs",
   "theme": "mint",
   "colors": {
     "primary": "#8B5CF6",
@@ -54,5 +54,18 @@
         ]
       }
     ]
+  },
+  "footer": {
+    "socials": {
+      "discord": "https://discord.gg/DmdTDgJc",
+      "github": "https://github.com/wzm-dev"
+    }
+  },
+  "background": {
+    "decoration": "windows"
+  },
+  "logo": {
+    "light": "/images/ChatGPTImageSep28,2026,10_59_13PM.png",
+    "dark": "/images/ChatGPTImageSep28,2026,10_59_13PM.png"
   }
 }
