@@ -1,0 +1,113 @@
+---
+title: "Mira: aimbot, FOV e wall check"
+description: "A matemática de targeting: distância em pixels, ranking de alvo, wall check por raycast e predição."
+---
+
+Targeting bem-feito se distingue do quebrado em três pontos: ranquear por **pixels**, checar parede **pelo hit que não é descendente do alvo**, e aplicar predição **no destino final**.
+
+## FOV é em pixels
+
+O raio do FOV é uma distância **na tela**, não no mundo:
+
+```lua
+local cam = workspace.CurrentCamera
+local center = cam.ViewportSize / 2
+
+local function screenDist(worldPos)
+    local point, onScreen = cam:WorldToViewportPoint(worldPos)
+    if not onScreen then return math.huge end
+    return (Vector2.new(point.X, point.Y) - center).Magnitude -- pixels
+end
+```
+
+`WorldToViewportPoint` já devolve o ponto em pixels com a GUI inset tratada — é essa coordenada que compara com o centro da tela.
+
+<Note>
+  Ranquear alvos por distância em **studs** faz o snap pegar o jogador mais próximo no mundo
+  mesmo quando ele está longe da mira. O rank certo é por distância em **pixels** do centro —
+  é isso que faz o aimbot "grudar" no que está visualmente perto do crosshair.
+</Note>
+
+## Pipeline de seleção
+
+```lua
+local function pickTarget()
+    local best, bestDist = nil, math.huge
+    for _, player in game.Players:GetPlayers() do
+        if player == LP then continue end
+        local char = player.Character
+        local hrp = char and char:FindFirstChild("HumanoidRootPart")
+        if not hrp then continue end
+
+        local dist = screenDist(hrp.Position)
+        if not G.FovEnabled and dist > G.FovRadius then continue end -- fora do círculo: descarta ANTES do wall check
+        if dist >= bestDist then continue end
+        if isBehindWall(hrp) then continue end
+        best, bestDist = hrp, dist
+    end
+    return best
+end
+```
+
+Ordem que importa:
+
+1. **`onScreen` obrigatório** — sem isso o aimbot trava em jogador atrás da câmera.
+2. **Rejeição por FOV antes do wall check** — raycast é caro; descarta o barato primeiro.
+3. **Wall check** só nos sobreviventes.
+
+## Wall check correto
+
+O erro clássico é exigir que o raio **acerte o alvo**. Isso rejeita todo tiro no ar livre — o raio só acerta algo se tiver parede na frente. O certo: o raycast conta como bloqueado **só quando acerta algo que NÃO é descendente do character do alvo**:
+
+```lua
+local function isBehindWall(targetHrp)
+    local params = RaycastParams.new()
+    params.FilterType = Enum.RaycastFilterType.Exclude
+    params.FilterDescendantsInstances = { LP.Character }
+
+    local origin = cam.CFrame.Position
+    local result = workspace:Raycast(origin, targetHrp.Position - origin, params)
+    if not result then return false end -- ar limpo: visível
+    return not targetHrp:IsAncestorOf(result.Instance) -- true = tem parede na frente
+end
+```
+
+Um miss limpo (nil) significa visível; um hit em qualquer parte do character do alvo também.
+
+## Predição
+
+Aplique a predição **no destino final da mira**, não só no spoofing de silent aim:
+
+```lua
+local aimPos = targetHrp.Position
+if G.Prediction > 0 then
+    aimPos += targetHrp.AssemblyLinearVelocity * G.Prediction -- e.g. 0.13
+end
+cam.CFrame = CFrame.new(cam.CFrame.Position, aimPos)
+```
+
+`G.Prediction` em segundos: multiplica a velocidade atual do alvo. Comece em ~0.12 e ajuste por jogo (ping alto pede mais).
+
+## Trigger bot e cliques sintetizados
+
+`keypress`/`mouse1click` (extensões de executor) sintetizam input — e o **primeiro clique de um auto clicker cai na própria UI do hub**, desligando o toggle que o usuário acabou de ligar. Guard com hover:
+
+```lua
+local function safeClick()
+    local hovered = UserInputService:GetMouseGuiObject()
+    if hovered then return end -- cursor sobre GUI: não clique
+    mouse1click()
+end
+```
+
+<Warning>
+  `GuiService:GetGuiIsVisible()` retorna true para QUALQUER GUI visível — chat nativo incluso —
+  e transforma o clicker num no-op permanente. O guard certo é
+  `UserInputService:GetMouseGuiObject()` (nil = cursor não está sobre GUI).
+</Warning>
+
+Features de clique se expõem via keybind que espelha o toggle silenciosamente (ver [cleanup](/features/cleanup)).
+
+## Pós-processamento da mira
+
+Snap suave em vez de travar: interpole o CFrame da câmera por uma fração (ex.: `cam.CFrame = cam.CFrame:Lerp(targetCF, G.Smoothness)`) — `G.Smoothness` entre 0.1 e 1 controla o quanto por frame.

@@ -1,0 +1,93 @@
+---
+title: "Movement: wall walk e gravidade"
+description: "Andar em paredes e tetos substituindo o controller: PlatformStand, fan de raycasts, soma de normais e VectorForce world-space."
+---
+
+Andar em parede/teto quebrando o humanoid **congela o boneco** — forçar CFrame ou trocar pra estado `Physics` gruda o personagem contra a superfície sem conseguir andar, e ele cai no pulo. A receita certa **substitui o controller**: o humanoid yields, e você dirige tudo.
+
+## A receita (GravityController)
+
+O mecanismo que o wallwalk do IY carrega (wallwalker do Wally):
+
+**1. Humanoid yields:**
+
+```lua
+humanoid.PlatformStand = true -- humanoid para de lutar contra você
+```
+
+**2. Fan de raycasts por frame** — 1 pra baixo + ~8 radiais + ~4 laterais ("feelers"), a partir do HRP, e some os **normais** dos hits num vetor gravidade-cima:
+
+```lua
+local function senseGravityUp()
+    local up = Vector3.yAxis
+    local total = Vector3.zero
+    local hits = 0
+    for _, dir in FEELER_DIRS do -- ~13 direções pré-computadas
+        local result = workspace:Raycast(hrp.Position, dir * FEELER_LEN, params)
+        if result then
+            total += result.Normal
+            hits += 1
+        end
+    end
+    if hits > 0 then
+        up = total.Unit -- média das normais = "cima" da superfície
+    end
+    return up
+end
+```
+
+**3. Inclina suavemente, nunca snap:**
+
+```lua
+currentUp = currentUp:Lerp(targetUp, 0.15) -- ~15% por frame
+```
+
+**4. Aplica via VectorForce world-space:**
+
+```lua
+local att = Instance.new("Attachment")
+att.Parent = hrp
+local force = Instance.new("VectorForce")
+force.Attachment = att
+-- gravidade redirecionada + força de caminhada (massa-proporcional, cap ~10000)
+force.Force = g * mass * (Vector3.yAxis - currentUp) + walkForce
+```
+
+**5. Orienta com BodyGyro** construído da base do plano da parede:
+
+```lua
+gyro.CFrame = CFrame.fromMatrix(Vector3.zero, right, currentUp)
+```
+
+## Input relativo à câmera, projetado no plano
+
+O movimento precisa ser a direção da câmera **projetada no plano da parede**. E quando a câmera olha **pra dentro** da superfície (|look·up| > 0.5), inverta o forward para o UpVector da câmera — essa inversão é o que faz "andar na parede + W" subir em vez de raspar:
+
+```lua
+local camLook = cam.CFrame.LookVector
+if math.abs(camLook:Dot(currentUp)) > 0.5 then
+    camLook = cam.CFrame.UpVector
+end
+local moveDir = (camLook * -forwardInput + cam.CFrame.RightVector * -rightInput)
+moveDir = moveDir - currentUp * moveDir:Dot(currentUp) -- projeta no plano
+```
+
+## Pulo e degraus
+
+- **Pulo:** raycast curto ao longo de `-up` procurando chão; no hit, soma `up * JumpPower` à `AssemblyLinearVelocity` com cooldown ~0.25s.
+- **Degraus/subidas:** as feelers laterais seguram o personagem nos ressaltos enquanto a média das normais re-estabiliza o "cima".
+
+## Auto-desliga e restore
+
+O controller quebra **sentado** (assentos dirigem o humanoid) e **morto**:
+
+```lua
+humanoid.Seated:Connect(function() if G.WallWalkEnabled then G.toggleWallWalk(false) end end)
+humanoid.Died:Connect(function() if G.WallWalkEnabled then G.toggleWallWalk(false) end end)
+```
+
+O caminho off restaura `PlatformStand = false`, `AutoRotate = true` e destrói gyro + force. Nunca deixe movers parentados depois de desligar (ver [cleanup](/features/cleanup)).
+
+## Fly (contraste)
+
+Fly é o caso simples da mesma família: sem trocar controller, BodyVelocity/VectorForce no HRP com direção da câmera, e `PlatformStand` **não** — humanoid normal com gravidade compensada. Wall walk é o caso difícil porque a gravidade **gira** e o humanoid não pode ficar no comando.

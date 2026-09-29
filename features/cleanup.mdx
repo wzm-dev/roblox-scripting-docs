@@ -1,0 +1,71 @@
+---
+title: "Cleanup e eject"
+description: "O contrato de limpeza: kill-all antes do Unload, ordem de desligamento e espelhamento silencioso de keybinds."
+---
+
+O bug padrão de todo hub: o botão de eject mata só a UI e **deixa todas as features vivas** — ESP continuando na tela, fling ativo, gravidade alterada. O eject precisa rodar um kill-all **antes** de descarregar a interface.
+
+## O contrato
+
+`window:Unload()` (Rayfield Gen2) destrói somente a interface. O botão de eject roda:
+
+```lua
+function G.killAll()
+    -- cada off em pcall: uma falha não pode pular os próximos
+    pcall(function() G.toggleEsp(false) end)
+    pcall(function() G.toggleAimbot(false) end)
+    pcall(function() G.toggleFling(false) end)
+    pcall(function() G.toggleWallWalk(false) end)
+    pcall(function() G.toggleNoclip(false) end)
+    -- ... toda feature
+    pcall(function() G.removeAllDrawings() end)
+    pcall(function() G.disconnectPersistentConns() end)
+    pcall(function() G.restoreLighting() end)
+    pcall(function() G.restoreGravity() end)
+    pcall(function() G.restoreCamera() end)
+    pcall(function() G.restoreStats() end)
+    pcall(function() G.destroyOverlays() end)
+end
+```
+
+Cada toggle já executa seu próprio caminho off completo (desconecta, remove, restaura). O kill-all só encadeia eles — por isso o contrato de toggle da [arquitetura](/features/architecture) é pré-requisito: um toggle cujo off não restaura tudo torna o eject incompleto **por definição**.
+
+## Ordem de desligamento
+
+1. **Pare os loops primeiro** (RenderStepped/Heartbeat/Stepped desconectados).
+2. **Reverta o estado** (Lighting, Gravity, FOV, WalkSpeed, colisões, PlatformStand).
+3. **Limpe o ambiente** (Drawings removidos, overlays destruídos, conns persistentes desconectados, unanchor).
+
+Inverter a ordem deixa um frame em que um loop morto lê estado já restaurado — erro dentro de RenderStepped desconecta a conexão permanentemente, o que aqui até "ajuda", mas o frame de erro pode crashar o executor em builds sensíveis.
+
+## Keybind espelhando toggle
+
+Um keybind que flipa uma feature que **também** tem toggle no painel deve espelhar pelo handle silencioso:
+
+```lua
+-- keybind que espelha um toggle existente no painel (Rayfield Gen2):
+toggleHandle:Set(not toggleHandle.value, true) -- silent: move a UI sem re-disparar callback
+G.toggleEsp(not G.EspEnabled)                 -- e a lógica da feature roda UMA vez
+```
+
+<Warning>
+  `window:Set(flag, value)` **re-dispara o callback do toggle** — a lógica da feature roda duas vezes
+  (BodyVelocity duplicado, conexões dobradas). O caminho certo é `Set(value, true)` (silencioso)
+  + chamar a função de feature uma vez diretamente.
+</Warning>
+
+## Nunca deixe movers parentados
+
+O off path destrói o mover e restaura colisão + estado do humanoid (AutoRotate, SetStateEnabled). Um BodyVelocity/BodyAngularVelocity esquecido parentado mantém o boneco voando/girando depois do eject — e pior: no respawn o character novo herda nada, então o bug parece "sumir" até a próxima sessão.
+
+## Unload da UI por último
+
+```lua
+ejectButtonCallback = function()
+    G.killAll()
+    window:Unload()      -- só agora a interface morre
+    _G.StrelitziaLoaded = nil -- libera a trava pro próximo load
+end
+```
+
+Se o unload rodar antes do kill-all, um erro no kill-all (que references elementos mortos da UI) aborta o encadeamento no primeiro pcall que toca UI — features vivas de novo.

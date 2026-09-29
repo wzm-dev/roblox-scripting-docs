@@ -1,0 +1,105 @@
+---
+title: "Extensões de executor"
+description: "getgenv, queue_on_teleport, hookfunction, setclipboard, getcustomasset e o contrato de degradação pcall."
+---
+
+A API de executor divide em duas famílias: a família Syn-style (quase todo executor moderno implementa) e as extensões que cada um adiciona por conta. Toda chamada de extensão vai em pcall; na falha, degrada pra no-op — nunca deixa o callback crashar.
+
+## getgenv e o ambiente compartilhado
+
+`getgenv()` devolve o ambiente global do executor — onde vivem variáveis compartilhadas entre scripts e recargas:
+
+```lua
+getgenv().StrelitziaLoaded = true
+print(getgenv().StrelitziaLoaded) -- true
+```
+
+É o lugar certo pra trava de instância única (junto com `_G`), porque sobrevive a múltiplas execuções do mesmo script no mesmo executor.
+
+## Transparência (invisibilidade)
+
+Transparência de character é um jogo de **restauração simétrica**:
+
+```lua
+local saved = {}
+
+function G.toggleInvisible(enabled)
+    if enabled then
+        for _, part in char:GetDescendants() do
+            if part:IsA("BasePart") and part.Transparency < 1 then
+                saved[part] = part.Transparency
+                part.Transparency = 1
+            end
+        end
+    else
+        for part, t in saved do
+            pcall(function() part.Transparency = t end) -- part pode ter sumido no respawn
+        end
+        table.clear(saved)
+    end
+end
+```
+
+O irmão do pitfall: um loop de noclip que restaura `CanCollide` de forma não-simétrica deixa o boneco caindo pelo mapa depois que a feature desliga.
+
+## queue_on_teleport
+
+```lua
+queue_on_teleport("loadstring(game:HttpGet('https://.../hub.lua'))()")
+```
+
+Reexecuta o string no próximo servidor. O pitfall capital está em [pitfalls](/pitfalls): re-queue dentro de callback re-disparado pelo autoLoad multiplica painéis por teleport (1→2→4→8). A regra: re-queue **exatamente uma vez por instância, no fim do load**, lendo a flag de estado — nunca dentro de callback que o autoLoad dispara.
+
+## hookfunction / hookmetamethod
+
+```lua
+local oldNamecall
+oldNamecall = hookmetamethod(game, "__namecall", function(self, ...)
+    local method = getnamecallmethod()
+    -- inspeção / modificação
+    return oldNamecall(self, ...)
+end)
+```
+
+<Warning>
+  Sempre guarde o original e repasse os argumentos. Um hook sem `return old(self, ...)`
+  quebra o jogo inteiro na sessão — não só a sua feature.
+</Warning>
+
+## Extensões executor-dependentes
+
+| Extensão | O que faz | Cuidado |
+|---|---|---|
+| `keypress(k)` / `keyrelease(k)` | sintetiza tecla (mouse1 = 1) | clique cai na UI do hub — guard com `GetMouseGuiObject()` |
+| `mouse1click()` | clique esquerdo sintetizado | idem; espelhe via keybind silencioso |
+| `setclipboard(s)` | copia pra área de transferência | pcall; confirma com notify único |
+| `getcustomasset(path)` | registra arquivo local como `rbxasset://` | cache dir imutável — renomear orfã usuários |
+| `request` / `http_request` | HTTP do cliente | headers explícitos; nunca credenciais |
+| `setfpscap(n)` | limita FPS | restaure no cleanup |
+| `Drawing` | overlay | ver [drawing](/features/drawing) |
+
+## O contrato de degradação
+
+```lua
+local ok, result = pcall(function()
+    return setclipboard(text)
+end)
+if not ok then
+    G.notifyError("Clipboard não suportado neste executor")
+end
+```
+
+Executores divergem em nomes (`http_request` vs `request`), assinaturas e presença total. pcall + fallback por executor é a única forma de suportar vários.
+
+## Mapear extensões no boot
+
+```lua
+G.Support = {
+    Drawing = typeof(Drawing) == "table" and Drawing.new ~= nil,
+    Clipboard = typeof(setclipboard) == "function",
+    CustomAsset = typeof(getcustomasset) == "function",
+    KeyPress = typeof(keypress) == "function",
+}
+```
+
+Gateie cada feature pela tabela no boot — e a UI desabilita o que não existe (via `Lock` do Rayfield).

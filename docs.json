@@ -1,0 +1,58 @@
+{
+  "$schema": "https://mintlify.com/docs.json",
+  "name": "Roblox Scripting Docs",
+  "theme": "mint",
+  "colors": {
+    "primary": "#8B5CF6",
+    "light": "#8B5CF6",
+    "dark": "#8B5CF6"
+  },
+  "navigation": {
+    "groups": [
+      {
+        "group": "Começando",
+        "pages": [
+          "introduction"
+        ]
+      },
+      {
+        "group": "Luau — a linguagem",
+        "pages": [
+          "luau/overview",
+          "luau/syntax",
+          "luau/types",
+          "luau/metatables",
+          "luau/performance"
+        ]
+      },
+      {
+        "group": "Features — executor",
+        "pages": [
+          "features/architecture",
+          "features/drawing",
+          "features/targeting",
+          "features/movement",
+          "features/fling",
+          "features/cleanup",
+          "features/executor-globals"
+        ]
+      },
+      {
+        "group": "UI — Rayfield Gen2",
+        "pages": [
+          "ui/rayfield-overview",
+          "ui/rayfield-elements",
+          "ui/rayfield-config",
+          "ui/rayfield-advanced"
+        ]
+      },
+      {
+        "group": "Referência",
+        "pages": [
+          "pitfalls",
+          "verification"
+        ]
+      }
+    ]
+  }
+}

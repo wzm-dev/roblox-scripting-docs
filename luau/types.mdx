@@ -1,0 +1,67 @@
+---
+title: "Luau: tipos"
+description: "O sistema de tipos graduais do Luau: modos, anotações, casts, uniões e tipos exportados."
+---
+
+Luau tem tipagem **gradual**: cada arquivo escolhe o quanto o motor de tipos trabalha, e anotações são opcionais mas verificadas onde escritas.
+
+## Modos por arquivo
+
+```lua
+--!nocheck   -- desliga o motor (útil em arquivos gerados)
+--!nonstrict -- padrão: anotações verificadas, inferência fraca (falha -> any)
+--!strict    -- inferência completa; variáveis não inicializadas são o que a anotação diz
+```
+
+`strict` pega mais erros, mas exige mais anotação. Para arquivos de feature grandes, `nonstrict` + anotações pontuais em funções públicas é o equilíbrio prático.
+
+## Anotações
+
+```lua
+local n: number = 1
+local s: string? = nil                  -- string ou nil (number? == number | nil)
+local callback: (number) -> string
+
+function setSpeed(humanoid: Humanoid, speed: number): ()
+    humanoid.WalkSpeed = speed
+end
+
+local names = { "a", "b" } :: { string }  -- cast
+type Vec2 = { x: number, y: number }        -- alias
+type Maybe<T> = T?                          -- genérico
+export type Point = Vec2                    -- visível para quem faz require
+```
+
+Regras de cast:
+
+- `::` mantém **só o primeiro valor** de uma expressão multi-retorno; o resto é descartado.
+- Cast não é conversão — é uma promessa ao typechecker. `local x = "10" :: number` compila; em `strict` o checker reclama de `"10"` na hora da atribuição se puder provar o tipo real.
+
+## Uniões e interseções
+
+```lua
+type Mode = "off" | "silent" | "full"      -- tipos literais de string
+local m: Mode = "silent"
+local id: number | string = 42
+
+if typeof(m) == "string" then -- typeof (com 'of') estreita uniões
+    print(m:upper())
+end
+```
+
+## Tipos de classes Roblox
+
+Em `strict`, `Instance` e subclasses são tipos reais:
+
+```lua
+local char: Model? = game.Players.LocalPlayer.Character
+local hrp: BasePart? = char and char:FindFirstChild("HumanoidRootPart") :: BasePart?
+```
+
+Fora do Roblox (executor, CLI `luau-analyze`), classes de engine aparecem como "UnknownType" — veja o filtro em [verificação](/verification).
+
+## O que anotar na prática
+
+- **Contratos públicos primeiro:** funções expostas na tabela `G` de features — parâmetros e retorno.
+- **Estados que mudam de tipo:** `local conn: RBXScriptConnection? = nil` documenta que pode ser nil e permite o checker pegar uso antes da atribuição.
+- **Tabelas de configuração:** `type EspConfig = { boxes: boolean, names: boolean, maxDistance: number }`.

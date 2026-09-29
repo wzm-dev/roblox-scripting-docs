@@ -1,0 +1,66 @@
+---
+title: "Luau: performance"
+description: "O que desotimiza, o que o compilador faz e as regras de ouro para código quente em RenderStepped/Heartbeat."
+---
+
+## As três chamadas que desotimizam tudo
+
+`loadstring`, `getfenv` e `setfenv` **desotimizam o ambiente inteiro** — até `getfenv` somente leitura mata a otimização de importação global e desliga o inlining do `-O2`. Se precisar de `loadstring` (executores usam pra carregar a UI), mantha-a longe dos loops de código quente — o custo é uma vez por ambiente, mas a degradação é global no arquivo.
+
+## Regras de ouro para loops por-frame
+
+Todo código em `RenderStepped`/`Heartbeat` roda 60x por segundo. As regras:
+
+**1. Zero alocações dentro do loop.** Tabelas-literal por frame pro GC churnar 60x/s:
+
+```lua
+-- ERRADO: nova tabela por frame
+renderStep:Connect(function()
+    local props = { Size = 16, Center = true }
+    ensureText(player, props)
+end)
+
+-- CERTO: hoist para upvalue, alocado uma vez
+local _ST_NAME = { Size = 16, Center = true }
+renderStep:Connect(function()
+    ensureText(player, _ST_NAME)
+end)
+```
+
+**2. Escreva propriedades inline, sem arrays intermediários.** Não monte lista de segmentos/tabela de cores por frame — compute os 2–8 valores e escreva direto nas props do objeto.
+
+**3. Throttle dentro da MESMA conexão** com acumulador de `dt` — não crie timer paralelo:
+
+```lua
+local acc = 0
+heartbeat:Connect(function(dt)
+    acc += dt
+    if acc < 0.066 then return end -- ~15 Hz
+    acc = 0
+    -- trabalho caro aqui
+end)
+```
+
+Um recorder de posição/histórico de vida não perde nada a 15 Hz, e corta metade do custo do loop.
+
+**4. Reuse objetos — crie uma vez, atualize props.** Recriar `Drawing`/`Instance` por frame vaza e causa stutter em mapa pesado.
+
+## O que o compilador faz
+
+- **Fastcall builtin:** quase toda a `math.*`, `table.*` básica e `string.*` simples são chamadas internas sem chamada de função Lua. Exceções conhecidas: `math.random`, `math.noise`, `math.randomseed` **não** são especializadas — em loop quente, pré-gerne ou use hash leve.
+- **Namecall specialization:** `obj:Method()` compila pra chamada especializada; `local m = obj.Method` + `m(obj)` perde isso. Não cacheie métodos.
+- **Inlining `-O2`:** funções pequenas são inlinadas — mas só sem `loadstring`/`getfenv` no ambiente.
+- **Native codegen (`--!native`):** compila funções marcadas para máquina. Ajuda em aritmética densa; não ajuda em código dominado por chamadas de engine.
+
+## Números e coerção
+
+- Um único tipo numérico (double). Inteiros exatos até 2^53.
+- `math.random(1, n)` retorna inteiro; `math.random()` retorna fração.
+- Coerção string→número em aritmética (`"7" + 100 == 107`) — não conte com ela; o linter acusa.
+
+## Layout de tabela
+
+- Campo conhecido em compile time: use ponto (`t.campo`), não `t["campo"]`.
+- `#` em dict é bug em potencial (linter `TableOperations`); `ipairs` para no primeiro nil.
+- Arrays grandes: `table.create(n)` pré-aloca e evita rehash.
+- `table.freeze` permite otimizações de imutabilidade — congela de verdade (deep freeze precisa ser manual por nível).

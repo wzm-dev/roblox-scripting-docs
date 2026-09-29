@@ -1,0 +1,94 @@
+---
+title: "Arquitetura de features"
+description: "Como estruturar um hub: arquivo de funções com estado em _G, contrato de toggle e o ciclo de vida completo de uma feature."
+---
+
+Um hub Roblox tem duas camadas: o **arquivo de funções** (toda a lógica de feature) e o **script de UI** (só liga elementos às funções). Nunca embuta lógica de feature em callbacks de UI.
+
+## O contrato `G`
+
+O arquivo de funções expõe tudo numa tabela `_G` (apelidada `G` nos exemplos):
+
+```lua
+-- Functions.lua
+if _G.RH then return end -- trava de instância única
+local G = _G.RH or {}
+_G.RH = G
+```
+
+Cada feature expõe `G.toggleX(enabled)` e setters de configuração. O script de UI só faz:
+
+```lua
+tab:CreateToggle({
+    name = "ESP Boxes",
+    flag = "EspBoxes",
+    callback = function(v) G.toggleEspBoxes(v) end,
+})
+```
+
+## Contrato de toggle (o coração de tudo)
+
+Toda feature segue o mesmo ciclo:
+
+```lua
+-- 1. Estado no topo do arquivo
+G.FlyEnabled = false
+G.FlyConn = nil
+G.FlyOriginals = {}
+
+-- 2. A função de toggle
+function G.toggleFly(enabled)
+    G.FlyEnabled = enabled
+    -- desconectar ANTES de religar
+    if G.FlyConn then
+        G.FlyConn:Disconnect()
+        G.FlyConn = nil
+    end
+    if enabled then
+        -- salva originais ANTES de modificar
+        G.FlyOriginals.walkSpeed = humanoid.WalkSpeed
+        connectLoop()
+    else
+        -- desligar = restaurar, nunca hardcodar "default"
+        humanoid.WalkSpeed = G.FlyOriginals.walkSpeed or 16
+        cleanup()
+    end
+end
+```
+
+As cinco regras:
+
+1. **Estado primeiro:** `G.XEnabled = false; G.XConn = nil` no topo do arquivo; todo toggle escreve lá antes de qualquer coisa.
+2. **Desconecta antes de religar.** O caminho "on" sempre desconecta a conexão anterior — toggle duas vezes não pode duplicar loop.
+3. **Salva o original antes de modificar.** Lighting props, sizes/materials de part, WalkSpeed/JumpPower, FieldOfView da câmera → tudo em `G.XOriginals`. O caminho "off" restaura de lá. **Nunca hardcode o "default"** — 70 de FOV é o default do Roblox, não o do jogo; o jogo pode ter mudado.
+4. **Eventos que sobrevivem ao toggle** (PlayerAdded/CharacterAdded) guardam a conexão em `G.X*Conn` e desconectam no off. Toggle que só conecta **vaza um hook por re-enable**.
+5. **Re-aplica no respawn.** Humanoid state e body movers resetam na morte; features que precisam sobreviver ao respawn re-aplicam de um único reconect compartilhado em `LP.CharacterAdded` guardado pela flag.
+
+<Warning>
+  Um erro dentro de `RenderStepped` **desconecta permanentemente** aquela conexão — o Roblox corta, e a feature morre até ser re-togglada. Guarde toda chamada não-trivial dentro do loop (`pcall` em leituras exóticas tipo `TextBounds`, nil-checks em helpers).
+</Warning>
+
+## Estrutura de arquivo recomendada
+
+```text
+Functions.lua
+├── trava de instância única
+├── estado (todas as flags e conns)
+├── helpers compartilhados (G.helper = fn)
+├── features (toggle + setters, uma seção por feature)
+└── kill-all (ver /features/cleanup)
+```
+
+## Helpers cross-região
+
+Um `local function` referenciado por um callback que roda antes da linha de definição é capturado como **nil** — e dentro de RenderStepped isso mata a conexão pra sempre. Helpers usados em mais de uma região do arquivo viram campos de tabela:
+
+```lua
+G.getCharacter = function(player)          -- resolvido no momento da chamada,
+    return player.Character              -- posição no arquivo não importa
+end
+```
+
+## Por que `_G` e não módulos
+
+Executores carregam o hub via `loadstring(game:HttpGet(...))` — não há `require` entre os dois arquivos do hub carregados por URLs diferentes. `_G` é o contrato entre eles. Renomear o hub? Renomeie strings user-visible, mas **grep os dois arquivos pelos identificadores `_G.*` compartilhados antes** (o lock/unload é lido pelo arquivo de UI também).

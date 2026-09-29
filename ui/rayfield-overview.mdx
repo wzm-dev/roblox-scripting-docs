@@ -1,0 +1,73 @@
+---
+title: "Rayfield Gen2: janela e abas"
+description: "CreateWindow, CreateTab, grupos, placement rules e o modelo mental da biblioteca Rayfield Gen2."
+---
+
+Rayfield Gen2 é a Interface Suite rebuildada: um handle de janela que possui abas, 12 tipos de elemento, notificações, popups, tags, saving, temas e localização.
+
+```lua
+local Rayfield = loadstring(game:HttpGet("https://sirius.menu/gen2"))()
+```
+
+Preview build (rolling dev): `https://sirius.menu/gen2-preview` — scripts publicados usam a stable.
+
+## Modelo mental
+
+- **Um handle possui tudo.** `Rayfield:CreateWindow()` devolve o handle da janela; abas, tags, mensagens, tema e saving penduram nele. O handle de aba cria todo elemento; o grupo cria elementos, seções e grupos aninhados.
+- **Value elements vs display elements.** Toggle, slider, dropdown, input, keybind e color picker são **value elements**: leia `.value`, escreva `Set(v)` (dispara callback) ou `Set(v, true)` (silencioso, só move a UI). Button, stat, progress, console, text e divider não carregam flag e nunca salvam.
+- **Saving é opt-in na janela.** Nada persiste sem `configuration` no `CreateWindow`. Aí todo value element salva sob uma flag derivada do nome (a menos que `forgetState = true`).
+- **Gen2 ≠ Rayfield 2022.** API diferente — não misture call shapes das docs legadas.
+
+## CreateWindow
+
+```lua
+local window = Rayfield:CreateWindow({
+    name = "Strelitzia",
+    subtitle = "v1.8.0",
+    theme = "cobalt",
+    sidebarLayout = true,
+    configuration = { autoSave = true, autoLoad = true, fileName = "Strelitzia_Config" },
+})
+```
+
+| Prop | Tipo | Padrão | Nota |
+|---|---|---|---|
+| `name` | string | `"Rayfield Window"` | título da janela |
+| `subtitle` | string | — | linha menor sob o título |
+| `theme` | string \| table | `"default"` | nome built-in ou tabela de tema |
+| `icon` | string \| number | — | ícone ao lado do título |
+| `sidebarLayout` | boolean | `false` | abas em rail lateral (mais largo, telas estreitas só ícones) |
+| `profile` | string | — | linha sob o nome do jogador (sidebar apenas) |
+| `showName` / `showIcon` / `showIconOnly` | | | pill colapsada |
+| `configuration` | table | — | habilita saving: `autoSave`, `autoLoad`, `fileName`, `customFolder` |
+| `locale` / `translations` / `translator` | | | idioma e pacotes |
+
+Métodos do handle: `CreateTab`, `CreateTag`, `Notify`, `Toast`, `Popup`, `Show`/`Hide`/`ToggleHide`, `ToggleMinimise`, `Navigate(tab)`, `ChangeTheme`, `SetLocale`, `Save(name?)`, `Load(name?)`, `ListConfigs()`, `Get(flag)`, `Set(flag, v)`, `Unload()`. Depois de `Unload()` o handle está gasto (`window.unloaded == true`).
+
+## Abas e grupos
+
+```lua
+local tab = window:CreateTab({ name = "Combat", icon = 93364949241311 })
+local section = tab:CreateSection({ name = "Aiming" })
+local row = tab:CreateGroup() -- linha compacta: dois elementos lado a lado
+```
+
+### Placement rules (violá-las quebra o layout)
+
+- **Input, keybind e color picker são full-width e vivem no nível da aba** — nunca dentro de grupo.
+- **Text e divider são full-width**: aba ou grupo-coluna; numa linha (row) avisam e retornam `nil`.
+- **Rows (grupos)** comportam button, toggle, stat e slider, com wrap quando enchem.
+- **Colunas** também aceitam dropdowns e seções.
+- `window:CreateSection` não faz nada no layout de topo padrão — seções laterais só existem com `sidebarLayout = true`.
+
+## Organização de painel (house style)
+
+- Extremo agrupamento por classe: todos os toggles de uma classe primeiro (todos os ESP, todos os aimbots), DEPOIS uma seção única de tuning ("Cores & Ajustes"), depois grupos secundários.
+- Linhas compactas: `local row = tab:CreateGroup()` com dois toggles por linha; sliders/pickers/inputs ficam full-width fora das rows.
+- Cada feature configurável precisa do **próprio toggle de ativação** no painel — dropdowns de modo/alvo sozinhos são UI morta (nada lê eles sem a flag ligada). Toggle que só existe na action bar é indescritível: duplique o on/off contra a MESMA flag de estado.
+
+<Note>
+  Ícones são URLs crus de imagem (`rbxassetid://…` ou http), NÃO nomes de ícone — não existe mapa
+  Lucide. `icon = 93364949241311` vira `rbxassetid://93364949241311`. Nomes estilo `solar:`/`geist:`
+  não resolvem.
+</Note>

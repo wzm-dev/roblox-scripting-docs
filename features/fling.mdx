@@ -1,0 +1,94 @@
+---
+title: "Fling reativo (spin de massa infinita)"
+description: "A receita completa do fling que arremessa o alvo sem te arremessar: Massless, BodyAngularVelocity e a peça unidirecional de colisão."
+---
+
+O fling "reativo" (você parado, alvo voando) é uma receita de física com **cinco peças load-bearing** — tirar qualquer uma mata o efeito ou te arremessa junto.
+
+## As cinco peças
+
+**1. Massa infinita em TODAS as partes do seu character:**
+
+```lua
+for _, part in character:GetChildren() do
+    if part:IsA("BasePart") then
+        part.Massless = true
+        part.CustomPhysicalProperties = PhysicalProperties.new(math.huge, 0.3, 0.5)
+    end
+end
+```
+
+Massa infinita é o que faz a transferência de momento ser violenta.
+
+**2. BodyAngularVelocity no HRP com os números literais:**
+
+```lua
+local bav = Instance.new("BodyAngularVelocity")
+bav.AngularVelocity = Vector3.yAxis * 9e9
+bav.MaxTorque = Vector3.yAxis * 9e9
+bav.P = 9e9
+bav.Parent = hrp
+```
+
+<Warning>
+  Mantenha os números literais (9e9). "Calibrar" para um rad/s moderado **mata o arremesso**:
+  letalidade = velocidade de superfície × massa, não massa sozinha. Se precisar tunar a força,
+  faça um setter vivo que reescreve `AngularVelocity` no BAV parentado — não recalcule do zero.
+</Warning>
+
+**3. BAV persistente entre toggles** com alive-check — não recrie por ativação:
+
+```lua
+pcall(function()
+    bav.Parent = bav.Parent -- alive-check: erro se destruído
+end)
+```
+
+Parent/unparent no toggle; o objeto continua o mesmo.
+
+**4. Estabilização na ativação** (senão você gira junto):
+
+```lua
+hrp.Anchored = true
+hrp.AssemblyLinearVelocity = Vector3.zero
+hrp.AssemblyAngularVelocity = Vector3.zero
+task.delay(0.5, function() hrp.Anchored = false end)
+```
+
+Deixe o humanoid **intocado** — o char continua andando e pulando normalmente.
+
+**5. A PEÇA UNIDIRECIONAL** — sem ela, a terceira lei de Newton te arremessa junto:
+
+```lua
+while G.FlingEnabled do
+    for _, part in myParts do
+        part.CanCollide = false -- você atravessa o alvo
+    end
+    RunService.Stepped:Wait() -- precisa ser Stepped, antes da física
+end
+```
+
+Colisão off = você atravessa o alvo; só o HRP **dele** bate nas suas partes fantasmas de massa infinita girando — só ele voa. Restaure os defaults de `CanCollide` por part no off (cacheados por evento), re-cache no respawn, e escreva só enquanto ativo + uma vez na borda de saída.
+
+## Ciclo do toggle
+
+```lua
+function G.toggleFling(enabled)
+    G.FlingEnabled = enabled
+    if G.FlingConn then G.FlingConn:Disconnect() G.FlingConn = nil end
+    if enabled then
+        stabilize()
+        flingConn = RunService.Stepped:Connect(function()
+            setMyCollision(false)
+        end)
+    else
+        setMyCollision(true) -- borda de saída: restaura uma última vez
+        if bav then bav.Parent = nil end
+        restoreCollisionDefaults()
+    end
+end
+```
+
+## Por que Stepped e não Heartbeat
+
+`Stepped` roda **antes** do passo de física; `Heartbeat` roda depois. A colisão precisa estar off quando a física resolve o contato — um frame de atraso e você já levou o recuo.

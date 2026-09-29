@@ -1,0 +1,78 @@
+---
+title: "Rayfield Gen2: saving e temas"
+description: "Configuração de persistência: configuration table, flags, configs nomeadas e o sistema de temas."
+---
+
+## Habilitar saving
+
+Saving é **opt-in**: nada persiste sem `configuration` no `CreateWindow`.
+
+```lua
+local window = Rayfield:CreateWindow({
+    name = "Strelitzia",
+    configuration = {
+        autoSave = true,      -- salva a cada mudança
+        autoLoad = true,       -- carrega no primeiro open
+        fileName = "Strelitzia_Config",
+        customFolder = "Strelitzia", -- opcional
+    },
+})
+```
+
+Com `configuration` ativo, todo value element salva sob uma **flag** derivada do `name` (ou da `flag` explícita). `forgetState = true` exclui um elemento do save.
+
+## Semântica do autoLoad
+
+<Note>
+  `autoLoad` roda **uma vez, no primeiro open** — reabrir nunca sobrescreve mudanças não salvas
+  do usuário. Elementos criados depois ainda se restauram sozinhos.
+</Note>
+
+O corolário que quebra hubs: **autoLoad re-dispara o callback de todo value element** quando a janela abre pela primeira vez. Callbacks tagarelas (notify em todo toggle) viram uma parede de toasts a cada start do script — e callbacks com efeitos colaterais (re-queue, conexões) rodam de novo. Toda lógica no callback precisa ser idempotente pro caminho "mesmo valor re-aplicado".
+
+## Ler e escrever por flag
+
+```lua
+window:Save()                    -- salva agora (default file)
+window:Save("PvP Loadout")        -- config nomeada
+window:Load("PvP Loadout")
+window:ListConfigs()             -- {"PvP Loadout", ...}
+window:DeleteConfig("PvP Loadout")
+window:GetPath()                  -- diretório, caminho completo do arquivo
+
+window:Get("EspBoxes")            -- valor salvo pela flag
+local v = window.Flags.EspBoxes    -- idem, acesso direto
+window:Set("EspBoxes", true)      -- escreve E dispara o callback do elemento
+```
+
+`window:Set(flag, v)` retorna `false` pra flag desconhecida — e **re-dispara o callback do elemento**: para mudar a UI sem rodar a lógica duas vezes, use o handle `element:Set(v, true)` silencioso (ver [cleanup](/features/cleanup)).
+
+`Get`/`Flags` só enxergam value elements que salvaram.
+
+## O painel de configurações embutido
+
+Com `configuration` ativo, o Rayfield cria uma seção própria de Configurations na aba de Settings dele — salvar/carregar/deletar configs nomeadas, sem você escrever UI pra isso.
+
+## Temas
+
+Seis built-ins; `ChangeTheme(nome)` re-estiliza em runtime (cores tweenam, raios/fontes/gradientes aplicam instantâneo):
+
+```lua
+window:ChangeTheme("ember")
+```
+
+Temas são **parciais**: você sobrescreve só as chaves que quer sobre o tema atual, e stroke se deriva automaticamente.
+
+### Chaves de tema
+
+| Grupo | Chaves típicas |
+|---|---|
+| window | `WindowColor`, `WindowStroke`, `TitleColor`, `SubtitleColor`, `CornerRadius` |
+| controls | `ElementColor`, `ElementStroke`, `ElementGradient`, `ToggleOn`, `ToggleOff`, `SliderProgress` |
+| fields | `TextColor`, `SubTextColor`, `PlaceholderColor`, `AccentColor` |
+
+### House style de tema
+
+- Preenchimentos de elemento: gradientes translúcidos escuros **da mesma matiz** ("liquid glass", ex. violeta→roxo-profundo).
+- A cor de acento é **joia**: stroke de hover, progresso de slider, toggle-on, borda da janela — nunca preenchimento com gradiente de duas matizes (roxo→dourado no fill lê feio/algazarra pra esse estilo).
+- Overlays custom (QuickBar, HUDs) derivam a paleta das chaves do tema ativo (bar = WindowColor×0.85, chip = WindowColor×0.55, texto = ContentColor, pill = AccentColor) atrás de um setter `G.setXTheme(palette)` que repinta o chassis — chamado em todo ponto de troca de tema (callback do dropdown, boot, start/stop de RGB; ciclo RGB repinta throttled a ~5 fps).

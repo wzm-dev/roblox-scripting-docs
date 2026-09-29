@@ -1,0 +1,41 @@
+---
+title: "Introdução"
+description: "Documentação prática de scripting Roblox: Luau, features de executor e UI com Rayfield Gen2."
+---
+
+Essa documentação reúne tudo que a gente usa na prática ao construir scripts Roblox — da linguagem (Luau) às features de executor (ESP, aimbot, movement, fling) e à interface (Rayfield Gen2).
+
+O conteúdo é organizado em três camadas independentes:
+
+<Columns>
+  <Card title="Luau — a linguagem" icon="code" href="/luau/overview">
+    O que a linguagem adiciona sobre Lua 5.1: tipos graduais, interpolação, `continue`,
+    performance e o modelo mental de execução.
+  </Card>
+  <Card title="Features — executor" icon="crosshair" href="/features/architecture">
+    ESP, aimbot/FOV, movement (wall walk, fly), fling, remote spy e o contrato de
+    limpeza que impede feature viva depois do eject.
+  </Card>
+  <Card title="UI — Rayfield Gen2" icon="layout-template" href="/ui/rayfield-overview">
+    Janela, abas, 12 tipos de elemento, notificações, temas, saving e localização
+    da biblioteca Rayfield Gen2.
+  </Card>
+</Columns>
+
+## Como ler
+
+- **Escrevendo um script do zero?** Comece por [Luau](/luau/overview), depois [arquitetura de features](/features/architecture), depois [Rayfield](/ui/rayfield-overview).
+- **Depurando algo que não funciona?** Vá direto em [Pitfalls](/pitfalls) — é a lista de bugs que realmente aconteceram, com causa raiz e correção.
+- **Vai publicar?** Rode a checagem de [Verificação](/verification) antes de injetar qualquer arquivo.
+
+## Convenções usadas nos exemplos
+
+- Código de feature vive num arquivo separado de funções, exposto numa tabela `_G` (chamada de `G` nos exemplos). O script de UI só liga elementos a essas funções.
+- Todo toggle de feature segue o mesmo contrato: salvar o estado, desconectar a conexão anterior antes de religar, e restaurar o original ao desligar.
+- Snippets são Luau válido e passam em `luau-analyze` com as regras descritas em [Verificação](/verification).
+
+<Note>
+  Esses scripts rodam no contexto de **executor** (cliente). APIs como `Drawing`, `keypress`
+  e `queue_on_teleport` são extensões do executor, não da plataforma Roblox — cada seção
+  avisa o que é padrão e o que depende do executor que você usa.
+</Note>

@@ -1,0 +1,67 @@
+---
+title: "Verificação"
+description: "O pipeline de checagem antes de injetar: luau-compile, luau-analyze com allowlist fixa e smoke test no executor."
+---
+
+Nenhum arquivo entra no executor sem passar por aqui. O pipeline tem três estágios — sintaxe, análise e smoke test.
+
+## Estágio 1: compila (sintaxe pura)
+
+```bash
+luau-compile --binary Functions.lua
+```
+
+Pega erro de parse, `end` faltando, aspas abertas, identificador truncado. É barato e roda em arquivos grandes em segundos — **rode depois de toda edição scriptada**; uma edição crasheada deixa estado parcial no disco que a próxima edição compõe.
+
+## Estágio 2: luau-analyze com allowlist fixa
+
+Fora do Roblox, todo global de engine lê como "Unknown global" — o analyze não conhece `game`, `task`, `Enum` etc. O filtro certo é um **allowlist fixo**:
+
+```text
+game task Enum Color3 Instance CFrame Vector3 Vector2 UDim2 Drawing
+RaycastParams ColorSequence ColorSequenceKeypoint NumberSequence NumberSequenceKeypoint
+TweenInfo Tween Random DateTime os string table math bit32 typeof warn print
+loadstring getgenv queue_on_teleport setclipboard getcustomasset hookfunction
+getnamecallmethod keypress keyrelease mouse1click request http_request setfpscap
+```
+
+Regra de leitura do relatório filtrado:
+
+- Unknown global **fora do allowlist** = identificador realmente indefinido — quase sempre um helper local perdido numa edição (typo de nome, região recortada). Esse é bug de runtime nil-call esperando acontecer.
+- UnknownType em posições de tipo (`Color3`, `ColorSequence`…) = mesma classe de falso positivo, mesmo filtro.
+
+<Warning>
+  Descartar a classe inteira de "Unknown global" sem allowlist esconde o bug real: um helper
+  perdido lê exatamente como um global de engine. O allowlist separa os dois.
+</Warning>
+
+Linter warnings que valem sempre corrigir: `MisleadingAndOr`, `ComparisonPrecedence`, `TableOperations` (`#dict`), `TableLiteral` (chave duplicada em locale), `IntegerParsing`.
+
+## Estágio 3: smoke test no executor
+
+O teste mínimo de UI: janela + aba + um botão cujo callback chama `window:Notify`:
+
+```lua
+local Rayfield = loadstring(game:HttpGet("https://sirius.menu/gen2"))()
+local window = Rayfield:CreateWindow({ name = "Smoke" })
+local tab = window:CreateTab({ name = "Test" })
+tab:CreateButton({ name = "Ping", callback = function()
+    window:Notify({ title = "Hello" })
+end })
+```
+
+Passa se: a janela renderiza, a primeira aba visível abre sozinha, o clique mostra o card no canto.
+
+Para features, o smoke test é o ciclo completo do toggle: **liga → efeito visível → desliga → rastro zero**. Desligar e procurar resíduo é o teste que pega vazamento: objeto Drawing vivo, conn conectado, WalkSpeed modificado, mover parentado. Se o off path não devolve o estado exato do antes, a feature não está pronta.
+
+## Rotina de publicação
+
+1. `luau-compile --binary` em todo arquivo alterado.
+2. `luau-analyze` + allowlist; zero novos warnings.
+3. Smoke test do toggle cycle de cada feature tocada.
+4. Bump da versão no window tag + entrada no changelog (todo update grande).
+5. Commit + push — o raw do GitHub vira o **last known-good**: se o arquivo local corromper numa edição, restaura do raw e re-aplica em vez de patchear o híbrido.
+
+## Restore point
+
+O mirror raw do repo é o restore point de produção: um boot que falha depois de uma edição errada se recupera com `git checkout -- <file>` local (se o arquivo estava commitado e limpo) ou baixando o raw de novo. Editar por cima de um arquivo meiomorto compõe os dois problemas.

@@ -1,0 +1,94 @@
+---
+title: "Pitfalls"
+description: "Os bugs que realmente aconteceram, com causa raiz e correção — leia antes de debugar."
+---
+
+Cada entrada aqui é um bug real, com causa raiz técnica e a correção. Navegue pelo índice quando estiver debugando.
+
+## Luau / linguagem
+
+**`if`-expressão não aceita `elseif`.** `local x = if a then 1 elseif b then 2 else 3` é erro de parse. Multi-ramo usa o statement comum.
+
+**`continue` no fim do bloco.** É keyword contextual e precisa ser a última declaração do bloco; em `repeat..until` não pode pular um `local` usado na condição.
+
+**`` `{{ `` na string interpolada é erro de parse** — escape com `\{`. String interpolada como argumento de chamada exige parênteses: `f((`x`))`.
+
+**Casting multi-retorno:** `::` mantém só o primeiro valor.
+
+**`ipairs` para no primeiro nil** — use iteração generalizada (`for k, v in t`).
+
+**`a and b or c` quebra quando `b` é false/nil.** Use `if a then b else c` (linter: `MisleadingAndOr`).
+
+**`not x == y` parseia como `(not x) == y`** (linter: `ComparisonPrecedence`).
+
+**Sem tail calls:** recursão profunda estoura o limite de 20.000 chamadas Lua; `pcall`/corotina limitam a 200 chamadas C.
+
+**Não use funções como chave de tabela** — closure identity muda (closure caching).
+
+**Não cacheie métodos em locais** (`local m = obj.Method` perde a especialização de namecall). Cachear *valores* tudo bem.
+
+## Features / executor
+
+**Erro em RenderStepped desconecta a conexão PERMANENTEMENTE.** O Roblox corta; a feature morre até re-toggle. Guarde toda chamada não-trivial dentro do loop. Corolário: um `local function` helper referenciado por callback que roda antes da linha de definição é capturado como nil — e o nil-call dentro do loop mata a conexão pra sempre. Helpers cross-região viram campos de tabela (`G.helper = fn`).
+
+**Drawing não é Instance.** Sem `.Parent`, sem `:Destroy()`; vive até `:Remove()`. Teste `obj.Parent ~= nil` nunca acerta — o cache falha e vaza um objeto por entidade por frame.
+
+**Recriar Drawing por frame vaza e stutters.** Crie uma vez por entidade, atualize props por frame. Zero alocação no loop (tabelas-literal hoisted pra upvalue).
+
+**Mudança de cor/espessura/raio não chega nos objetos criados** se não for re-aplicada dentro do update por frame.
+
+**`Drawing.Image` com PNG em `.Data` não é portátil** — cria sem erro mas não renderiza em vários executores. Ícone colorido confiável: `Drawing.Line` com 2–7 segmentos. Emoji renderiza mas não aceita Color; símbolos tipográficos caem em fonte errada.
+
+**Wall check: exigir que o raio ACERTE o alvo rejeita todo tiro no ar livre.** Bloqueado = hit em algo que NÃO é descendente do character do alvo; miss limpo = visível.
+
+**Ranking por studs faz snap errado.** Rank por distância em pixels do centro da tela.
+
+**Clique sintetizado cai na própria UI do hub** e desliga o toggle recém-ligado. Guard: `UserInputService:GetMouseGuiObject()`. `GuiService:GetGuiIsVisible()` retorna true pra QUALQUER GUI visível (chat incluso) — no-op permanente.
+
+**`task.spawn` resume IMEDIATAMENTE** — spawnar um `while flag do` loop ANTES de setar a flag faz o loop sair no primeiro check e a feature nunca roda. Set a flag primeiro.
+
+**Toggle que só conecta vaza um hook por re-enable.** PlayerAdded/CharacterAdded hooks guardam conn em `G.X*Conn` e desconectam no off.
+
+**Noclip que não restaura `CanCollide` simetricamente** deixa o boneco caindo pelo mapa depois do off.
+
+**Player lists são snapshot.** Refresh de dropdowns e caches por-entidade em PlayerAdded/PlayerRemoving.
+
+**Mover parentado depois do off** mantém o boneco voando/girando — destrua e restaure colisão + humanoid no off path.
+
+**Nome de campo `G.*` chutado** (`InvisibleEnabled` vs o real `InvisEnabled`) retorna nil pra sempre — grep o assignment real antes de wirear a UI.
+
+**Flag duplicada (`flag = "..."`)** faz dois elementos brigarem pelo mesmo valor salvo do autoLoad.
+
+**Portar feature de referência: o callback NÃO é a feature inteira.** Grep TODO o source por leituras da flag de estado — loops consumidores em outras regiões do arquivo fazem parte do mecanismo.
+
+**"Calibrar" magic numbers de uma referência que funciona mata a feature.** Copie literal — os números são load-bearing (fling 9e9, wallwalk lerp 0.15, hold threshold).
+
+**Persistência via `queue_on_teleport` multiplica painéis** (1→2→4→8): lock atômico no topo + loader idempotente + re-queue uma vez no fim do load. Detalhe em [Rayfield avançado](/ui/rayfield-advanced).
+
+## Edição de arquivos grandes
+
+**Nunca escrever bloco Lua novo de 300+ linhas de uma vez no arquivo alvo** — a taxa de typo explode. Arquivos-pacote de ~60–120 linhas, compilar CADA um com `luau-compile --binary` antes de injetar, e injetar byte-safe (script Python) na âncora.
+
+**Nunca recortar blocos Lua por regex multiline.** Balanced-brace matching sobre callbacks multiline fatia errado e deixa regiões órfãs que corrompem o arquivo. Inventariar a região e REPLACER o bloco inteiro por banner-delimitadores; se já corrompeu, `git checkout -- <file>` bate consertar typo a typo.
+
+**Snapshot `.bak` antes de re-cortar script grande** — serial find/replace em 1000+ linhas drift na primeira mismatch de whitespace.
+
+## UI / Rayfield
+
+**`window:Set(flag, v)` re-dispara o callback** — lógica roda duas vezes. Use handle `Set(v, true)` + chame a feature uma vez.
+
+**Dropdown `.value` é sempre tabela** (mesmo single); o callback no multi recebe cópia.
+
+**Keybind `Set` dispara `onChanged`, nunca o press-callback; recusa a tecla do menu.**
+
+**`autoLoad` re-dispara todo callback de value element no primeiro open** — callbacks tagarelas viram parede de toasts; efeitos colaterais no callback precisam ser idempotentes.
+
+**Ícones são asset IDs crus, não nomes.** Não existe mapa Lucide; `solar:`/`geist:` não resolvem.
+
+**Input/keybind/color picker não entram em grupo** (full-width, nível de aba). Text/divider em row avisam e retornam nil.
+
+**Renomear elemento traduzido = renomear a chave em TODAS as locales** — linhas de locale empacotam várias chaves; remover linha mata vizinhas.
+
+**Depois de `Unload()` o handle está gasto** (`window.unloaded == true`).
+
+**Renomear hub: strings user-visible mudam, URLs/repo e cache dir NÃO.** Raw mirror é o restore point conhecido; cache dir renomeado orfã os assets baixados de todo usuário existente. Grep os DOIS arquivos pelos contratos `_G.*` compartilhados antes.

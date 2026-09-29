@@ -1,0 +1,81 @@
+---
+title: "Luau: visão geral"
+description: "O que o Luau é, o que ele adiciona sobre Lua 5.1 e o modelo mental para escrever scripts Roblox."
+---
+
+Luau é a linguagem de scripting do Roblox: um Lua 5.1 derivado, reimplementado do zero (interpretador novo, runtime modificado), projetado para ser rápido, pequeno e seguro. Também foi adotado fora do Roblox — Alan Wake 2, Warframe, Second Life e Farming Simulator usam a mesma implementação.
+
+Essa página cobre o modelo mental. A referência de sintaxe nova está em [sintaxe](/luau/syntax), tipos em [tipos](/luau/types), metatables em [metatables](/luau/metatables) e otimização em [performance](/luau/performance).
+
+## Modelo mental: Lua 5.1 + delta
+
+Escreva Lua 5.1 e some as extensões. O que foi **removido** por sandbox:
+
+- `io`, `os` (parcial), `package`, `debug` (parcial)
+- `loadfile`, `dofile`
+- Bytecode em `loadstring` e `string.dump`
+
+O que **não existe** (nem em Lua 5.4):
+
+- `goto`
+- Inteiros de 64 bits (há um único tipo numérico)
+- Operadores bitwise (`&`, `|`, `>>`…) — use a biblioteca `bit32`
+- Variáveis to-be-closed (`local x <close>`)
+- `__gc`
+- Tail calls (recursão profunda pode estourar o limite de 20.000 chamadas Lua; `pcall`/corotina limitados a 200 chamadas C)
+
+## Um único tipo numérico
+
+Todo número é um `double` IEEE 754 de 64 bits. Inteiros são exatos até 2^53. Literais hex acima de 2^64 truncam; acima de 2^53 perdem precisão (o linter acusa `IntegerParsing`).
+
+```lua
+print(3 // 2)        -- 1 (floor division)
+print(0xFF_FF_FF_FF) -- separadores _ permitidos
+print(100 + "7")     -- 107: aritmética coerce string -> número
+```
+
+## Tipos graduais
+
+Cada arquivo escolhe um modo na primeira linha:
+
+```lua
+--!nocheck    -- motor de tipos desligado
+--!nonstrict  -- padrão: não consegue inferir -> any
+--!strict     -- inferência completa
+```
+
+Detalhes em [tipos](/luau/types).
+
+## Luau idiomático ≠ Lua idiomático
+
+Hábitos de Lua 5.1 que ficam **errados** em Luau:
+
+- **Iteração:** use `for k, v in t do` (iteração generalizada) em vez de `pairs`/`ipairs`. `ipairs` para no primeiro `nil`; a generalizada não.
+- **Expressão condicional:** use `if a then b else c` em vez de `a and b or c` — o `and/or` quebra quando `b` é `false`/`nil` (linter: `MisleadingAndOr`).
+- **Não cacheie métodos em locais.** `obj:Method()` é especializado por namecall; `local m = obj.Method; m(obj)` perde a otimização. Caches de *valores* tudo bem — caches de *métodos* não.
+- **Campos na tabela, métodos na metatable.** Estrutura recomendada: metatable com `__index` apontando pra ela mesma, métodos declarados na metatable, e acesso via `table.campo` (ponto) em vez de `table["campo"]` — o ponto deixa o nome do campo conhecido em tempo de compilação.
+
+```lua
+local Dog = {}
+Dog.__index = Dog
+
+function Dog.new(name)
+    return setmetatable({ name = name }, Dog)
+end
+
+function Dog:bark()   -- método na metatable
+    print(self.name .. " says woof")
+end
+
+local d = Dog.new("Rex")
+d:bark()
+```
+
+## Como rodar e analisar
+
+- Interpretador: `luau script.luau` (REPL é sandboxado — sem acesso a arquivo além de `require`).
+- Typecheck + lint: `luau-analyze script.luau`.
+- Só sintaxe (compila): `luau-compile --binary script.luau`.
+- No Roblox Studio o editor de scripts já traz autocomplete, lint e typecheck.
+
+Binários em [github.com/luau-lang/luau/releases](https://github.com/luau-lang/luau/releases).

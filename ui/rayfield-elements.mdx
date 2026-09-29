@@ -1,0 +1,148 @@
+---
+title: "Rayfield Gen2: elementos"
+description: "Os 12 tipos de elemento do Rayfield Gen2: props, handles e os contratos de valor (Set/Get, flags)."
+---
+
+Todo elemento compartilha `name`, `description?` e `icon?`. Os **value elements** (toggle, slider, dropdown, input, keybind, color picker) seguem um contrato único: leia `.value`, escreva `Set(v)` (dispara callback) ou `Set(v, true)` (silencioso — só move a UI). Os **display elements** (button, stat, progress, console, text, divider) não carregam flag e nunca salvam.
+
+## Button
+
+```lua
+local btn = tab:CreateButton({
+    name = "Reset character",
+    callback = function()
+        game.Players.LocalPlayer.Character:BreakJoints()
+    end,
+})
+```
+
+Roda o callback no clique. Sem valor, sem flag.
+
+## Toggle
+
+| Prop | Tipo | Padrão | Nota |
+|---|---|---|---|
+| `value` | boolean | `false` | estado inicial |
+| `flag` | string | derivado do nome | chave de save |
+| `forgetState` | boolean | `false` | não salva |
+| `callback` | function | — | roda com o novo valor a cada mudança |
+
+```lua
+local espToggle = tab:CreateToggle({
+    name = "ESP Boxes",
+    flag = "EspBoxes",
+    callback = function(v) G.toggleEspBoxes(v) end,
+})
+espToggle:Set(false)      -- move UI e roda o callback
+espToggle:Set(false, true) -- move UI silenciosamente
+```
+
+`CreateSwitch` é alias do toggle.
+
+## Slider
+
+| Prop | Tipo | Padrão | Nota |
+|---|---|---|---|
+| `range` | { number } | `{0, 100}` | `{min, max}` |
+| `increment` | number | `1` | passo contado do min; os dois bounds continuam alcançáveis |
+| `value` | number | `min` | valor inicial |
+| `suffix` | string | — | unidade exibida |
+| `minimal` | boolean | `false` | só trilha, sem label (rows densas) |
+
+Callback recebe `(value, dragging)` — `dragging` true do grab ao release, com um `false` final quando assenta: prevê enquanto arrasta, commita quando para.
+
+```lua
+tab:CreateSlider({
+    name = "FOV radius",
+    range = { 50, 400 },
+    increment = 10,
+    value = 150,
+    suffix = "px",
+    callback = function(v) G.setFovRadius(v) end,
+})
+```
+
+## Dropdown
+
+| Prop | Tipo | Padrão | Nota |
+|---|---|---|---|
+| `options` | { string } | `{}` | as escolhas |
+| `multiSelect` | boolean | `false` | vários de uma vez |
+| `value` | string \| { string } | — | string no single, tabela no multi |
+| `placeholder` | string | `"None"` | quando nada selecionado |
+
+Handle: `.value` é **sempre tabela**, mesmo em single mode — a escolha é a primeira entrada. Só o callback desembrulha pra string crua no single. No multi o callback recebe uma **cópia**; editar a cópia não afeta o dropdown.
+
+```lua
+local drop = tab:CreateDropdown({
+    name = "Modules",
+    multiSelect = true,
+    options = { "Aimbot", "ESP", "Fly", "Noclip" },
+    value = { "ESP" },
+    callback = function(selected) print(selected[1]) end,
+})
+drop:Refresh({ "Aimbot", "ESP" }) -- troca a lista inteira
+drop:Add("Radar")
+drop:Remove("Fly") -- remover opção selecionada limpa e roda callback
+```
+
+<Warning>
+  Dropdowns são **snapshot**: a lista congela na criação. Um dropdown de jogadores precisa do
+  seu próprio refresh em PlayerAdded/PlayerRemoving (`drop:Refresh(nomes)`).
+</Warning>
+
+## Input — full-width, nível da aba
+
+Commite quando o jogador clica fora ou dá enter, **não** a cada tecla.
+
+| Prop | Tipo | Nota |
+|---|---|---|
+| `value` / `placeholder` | string | texto inicial / ghost |
+| `numeric` | boolean | só números; revert se malformado |
+| `clearOnFocus` | boolean | limpa ao ganhar foco |
+
+## Keybind — full-width, nível da aba
+
+Clique na caixa, pressione tecla ou botão do mouse; **Backspace limpa, Esc cancela** a gravação.
+
+| Prop | Tipo | Nota |
+|---|---|---|
+| `value` | EnumItem \| string | bind inicial |
+| `hold` | boolean | modo hold |
+| `holdThreshold` | number | segundos pra um press contar (default 0.2) |
+| `callback` | function | `callback(key)` por press; no hold: `callback(true/false)` em hold/release |
+| `onChanged` | function | roda quando o **bind** muda (não o press) |
+
+`Set(v, true)` pula o `onChanged`; **recusa a tecla de toggle do menu** com warning.
+
+## Color picker — full-width, nível da aba
+
+```lua
+tab:CreateColorPicker({
+    name = "Highlight color",
+    color = Color3.fromRGB(96, 205, 255),
+    callback = function(color, alpha)
+        G.setEspColor(color)
+    end,
+})
+```
+
+Handle: `.value` (Color3), `.alpha`, `Set(color, skip?)`, `SetAlpha(a, skip?)`. Cor **e** alfa persistem.
+
+## Display elements
+
+```lua
+local stat = tab:CreateStat({ name = "Kills", value = 0 })      -- stat: Set(value) (sem skip)
+tab:CreateProgress({ name = "Download", range = {0,100}, value = 35 })
+local con = tab:CreateConsole({ follow = true, maxLines = 200 }); con:Append("hi")
+tab:CreateText({ name = "Note", text = "..." })
+tab:CreateDivider({ text = "ou" })
+```
+
+Quirks: altura do console pisa no chão de 48px; `steps` abaixo de 2 no progress é ignorado; stat compacto dropa `description` com warning. Stat, progress, text e divider não têm `Set(v, true)` silencioso.
+
+## Regras de wiring com o Functions file
+
+Antes de ligar o get/set de um elemento a um campo `G.*`, **grep o arquivo de funções pelo assignment real** dentro do toggle (`G.XEnabled = enabled`). Nome de campo chutado (`InvisibleEnabled` vs o real `InvisEnabled`) retorna nil pra sempre e o botão lê morto.
+
+Depois de injetar elementos em massa, **grep por `flag = "..."` duplicados** — o autoLoad do config keya o estado salvo pela flag, e duplicados fazem dois elementos brigarem pelo mesmo valor salvo.

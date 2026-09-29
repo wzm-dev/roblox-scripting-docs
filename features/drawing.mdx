@@ -1,0 +1,129 @@
+---
+title: "Drawing API (ESP, FOV, crosshair)"
+description: "Overlay com objetos Drawing: ciclo de vida, create-or-get, zero alocação no render loop e o que funciona ou não em cada executor."
+---
+
+A Drawing API é a engine visual dos ESPs, círculos de FOV e crosshairs. Ela é **extensão de executor** (não API Roblox), então tudo aqui depende do executor — e as regras de ciclo de vida evitam os vazamentos clássicos.
+
+## O que é um objeto Drawing
+
+```lua
+local circle = Drawing.new("Circle")
+circle.Thickness = 1
+circle.NumSides = 64
+circle.Radius = 120
+circle.Filled = false
+circle.Color = Color3.fromRGB(96, 205, 255)
+circle.Visible = true
+circle:Remove() -- não existe :Destroy()
+```
+
+**Drawing não é Instance:** não tem `.Parent`, não tem `:Destroy()` — o objeto vive até `:Remove()`. Um teste de validade `obj.Parent ~= nil` é **sempre falso**: o cache nunca acerta, e você vaza um objeto por entidade por frame.
+
+## Padrão create-or-get (o coração do ESP)
+
+Crie um objeto por entidade **uma vez**, depois só atualize props por frame:
+
+```lua
+local boxes = {} -- [player] = {box=Drawing, text=Drawing}
+
+local function ensureBox(player, staticProps)
+    local cache = boxes[player]
+    if not cache then
+        local box = Drawing.new("Square")
+        box.Thickness = 1
+        box.Filled = false
+        box.Color = staticProps.color
+        boxes[player] = { box = box }
+        cache = boxes[player]
+    end
+    return cache
+end
+
+renderConn = RunService.RenderStepped:Connect(function()
+    for _, player in game.Players:GetPlayers() do
+        local cache = ensureBox(player, G.EspStatic)
+        local pos, onScreen = cam:WorldToViewportPoint(player.Character.HumanoidRootPart.Position)
+        cache.box.Visible = onScreen
+        if onScreen then
+            cache.box.Size = Vector2.new(60, 120)
+            cache.box.Position = Vector2.new(pos.X - 30, pos.Y - 60)
+        end
+    end
+end)
+```
+
+Recriar por `RenderStepped` vaza e solta stutter em mapa pesado.
+
+## Zero alocação no render loop
+
+Props estáticas viram upvalue, alocado uma vez fora do loop:
+
+```lua
+-- ERRADO: tabela-literal por frame -> GC churna 60x/s
+ensureText(player, { Size = 16, Center = true })
+
+-- CERTO
+local _ST_NAME = { Size = 16, Center = true }
+ensureText(player, _ST_NAME)
+```
+
+Idem listas intermediárias: não monte array de segmentos/tabela de cores por frame — compute os 2–8 valores inline e escreva direto nas props.
+
+## Mudança de cor/espessura
+
+Cor, espessura, raio mudados no painel precisam ser **re-aplicados dentro do update por frame** — senão nunca chegam nos objetos já criados:
+
+```lua
+renderConn = RenderStepped:Connect(function()
+    for _, e in pairs(boxes) do
+        e.box.Color = G.EspBoxColor -- lê o valor atual a cada frame
+    end
+end)
+```
+
+## Esconder e remover
+
+- Fora da tela / feature parcial: `.Visible = false`.
+- Entidade saiu (PlayerRemoving): `:Remove()` imediato e `boxes[player] = nil`.
+- Feature desligou: `:Remove()` em **todos** os objetos e limpe a tabela cache.
+
+## Erro no render loop = conexão morta
+
+Um erro dentro de `RenderStepped` **desconecta a conexão permanentemente** (o Roblox corta). Guarde toda chamada não-trivial:
+
+```lua
+renderConn = RenderStepped:Connect(function()
+    for _, player in game.Players:GetPlayers() do
+        local char = player.Character
+        local hrp = char and char:FindFirstChild("HumanoidRootPart")
+        if not hrp then continue end -- guard antes de qualquer acesso
+        -- ...
+    end
+end)
+```
+
+Exóticos como leitura de `TextBounds` merecem `pcall`.
+
+## O que renderiza em cada executor
+
+- **`Drawing.Image` (PNG em `.Data`) não é portável**: em vários executores o objeto cria sem erro mas nunca renderiza, mesmo com bytes corretos.
+- **Símbolos tipográficos** (`"♛"`) caem em fallback de fonte errado.
+- **Emoji** (`"👑"`) renderiza, mas **não aceita Color**.
+- Ícone colorido e garantido em Drawing: desenhe com `Drawing.Line` (2–7 segmentos, mesma engine dos boxes ESP) — aceita qualquer cor e funciona em todo executor.
+- Reserve `ImageLabel.Image` (path `rbxasset://` de `getcustomasset`) pra overlays de GUI/billboard, não pra Drawing.
+
+## Degradação graciosa
+
+Envolva `Drawing.new` em pcall; executor sem Drawing API recebe um notify "not supported" e a feature fica desligada em vez de cravar erro:
+
+```lua
+local ok = pcall(function()
+    local test = Drawing.new("Line")
+    test:Remove()
+end)
+if not ok then
+    G.notifyError("Drawing API não suportada neste executor")
+    return false
+end
+```

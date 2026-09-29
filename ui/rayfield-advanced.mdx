@@ -1,0 +1,89 @@
+---
+title: "Rayfield Gen2: avançado"
+description: "Notificações, popups, localização, internals da janela pra efeitos custom e a correção da persistência exponencial."
+---
+
+## Mensagens
+
+```lua
+window:Notify({ title = "Copiado", content = "Coordenadas no clipboard.", duration = 5 })
+window:Toast({ title = "Saved" })
+local popup = window:Popup({
+    title = "Confirmar?",
+    options = { { text = "Resetar", style = "danger" } },
+})
+popup:Close()
+```
+
+- **Notify:** card no canto inferior direito; a pilha segura **seis** — a mais velha sai cedo pra abrir espaço.
+- **Toast:** pílula do topo/fundo centro; aceita avatar e `minWidth`.
+- **Popup:** modal sobre backdrop escurecido; handle tem `Close()`. Suporta também dialog de escolha e changelog.
+
+### Política de notificação
+
+Notifique só pra: falhas, prompts de ação ("selecione um alvo primeiro") e confirmações one-shot (copiado, teleportado, salvo). Zero de chatter de toggle on/off e zero de anúncios no load. Motivo: autoLoad re-dispara todo callback de value element no primeiro open — toggle tagarela vira parede de toast a cada start, e o usuário lê como lag.
+
+## Tags
+
+```lua
+local tag = window:CreateTag({ text = "v1.8", color = Color3.fromRGB(139, 92, 246) })
+tag:SetText("v1.9")
+tag:SetColor(Color3.fromRGB(255, 215, 0))
+```
+
+Pílula ao lado do título.
+
+## Localização
+
+```lua
+local window = Rayfield:CreateWindow({
+    name = "Strelitzia",
+    locale = "pt-br",
+    translations = {
+        ["pt-br"] = { Settings = "Configurações", Search = "Buscar" },
+    },
+})
+window:SetLocale("pt-br") -- troca todo label ao vivo
+```
+
+As tabelas são **keyadas pela string em inglês** — e os nomes de elemento localizados também. Renomear um elemento que tem tradução = renomear a chave em **todas** as locales, e checar chave duplicada quando o novo nome já tinha entrada (luau-analyze acusa `TableLiteral`). Linhas de locale costumam empacotar várias chaves (`["A"]="A", ["B"]="B"`) — remover a linha mata as vizinhas; re-add.
+
+Strings internas da lib que valem tradução: Settings, Rayfield Settings, Configuration(s), Configuration Name, Saved Configurations, Search, Toggle Keybind, Reset Window Position, mais o set Saved/Loaded/Deleted e as mensagens de conflito de keybind.
+
+<Note>
+  A tecla de toggle do menu é **built-in** e editável pelo usuário na aba Settings do próprio
+  Rayfield (default RightShift). Não existe prop de CreateWindow nem API pra setar via script.
+</Note>
+
+## Internals da janela pra efeitos custom
+
+Acessíveis do script do hub (verificado no source v1.2.0):
+
+- `window.title` — TextLabel do header (TextSize 20)
+- `window.topbarIcon` — ImageLabel do header (32×32 hardcoded; o topbar tem 64px então 44px cabe)
+- `window.collapsedTitle` / `window.collapsedIcon` — pill colapsada (ícone 24×24; `CollapsedText` fica a offset fixo 50px — ícone maior que 24 overlapa; mova o frame de texto: Position.x → ícone+26, Size.x → -(ícone+36))
+- `window.main` — Frame raiz (border glow = UIStroke aqui)
+
+### Shimmer dourado no título
+
+`UIGradient` num TextLabel **multiplica** com `TextColor3` — keypoints-base em BRANCO (neutro, mantém a cor do tema), acento numa banda estreita (0.48–0.52), animando `Offset` de (-1,0) a (1,0) com tween Linear infinito (keypoints 0 e 1 idênticos = loop seamless). Motor-driven, custo zero por frame.
+
+## Persistência entre servidores sem multiplicar painéis
+
+<Warning>
+  Hub persistente via <Code>queue_on_teleport</Code> multiplica painéis exponencialmente
+  (1→2→4→8 por troca de mapa). Três causas compostas: (a) a trava de instância única registrava
+  só no FIM do build, então loaders simultâneos passavam pelo check; (b) o callback do toggle
+  de persistência re-queueava, e o autoLoad re-dispara esse callback em toda janela nova;
+  (c) cada loader extra virava painel independente no próximo teleport.
+</Warning>
+
+A correção (as três juntas):
+
+1. **Reserva atômica de lock no topo do script** — sem yield entre check e set (o scheduler cooperativo do Lua torna isso atômico; loader concorrente vê a reserva fresca e sai). Reserva órfã expira em ~45s pra um boot morto não wedgiar a sessão.
+2. **Loader idempotente** — early-return se `_G.XLoaded`.
+3. **Re-queue exatamente uma vez por instância, no fim do load**, lendo a flag de estado — nunca dentro de callback que o autoLoad dispara (guarde com sinal `_G.UIReady`).
+
+## Degradação pós-Unload
+
+Depois de `window:Unload()` o handle está gasto (`window.unloaded == true`) — reusar qualquer método dele erro. O eject correto: kill-all primeiro (ver [cleanup](/features/cleanup)), unload por último, liberar a trava `_G`.

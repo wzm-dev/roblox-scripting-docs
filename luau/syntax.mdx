@@ -1,0 +1,116 @@
+---
+title: "Luau: sintaxe"
+description: "Tudo que o Luau adiciona à sintaxe do Lua 5.1: interpolação, continue, atribuição composta, if-then-else e mais."
+---
+
+Referência das extensões de sintaxe. O baseline é Lua 5.1 — tudo aqui é **novo** no Luau.
+
+## Interpolação de strings
+
+Strings com crase interpolam expressões entre chaves:
+
+```lua
+local name = "Eodraxkk"
+local msg = `hello {name}, ping: {math.floor(0.5 + 34.7)}ms`
+print(msg) -- hello Eodraxkk, ping: 35ms
+```
+
+Regras:
+
+- `` `{{ `` dentro da string é **erro de parse** — escape com `\{`.
+- Como argumento de chamada, a string interpolada precisa de parênteses: `f((`x`))`, não `` f(`x`) ``.
+
+## `continue`
+
+`continue` é palavra-chave contextual — só funciona dentro de loops e **precisa ser a última declaração do bloco**:
+
+```lua
+for i = 1, 10 do
+    if i % 2 == 0 then continue end
+    print(i) -- imprime só os ímpares
+end
+```
+
+Em `repeat ... until`, o `continue` não pode pular um `local` usado na condição do `until`.
+
+## Atribuição composta
+
+```lua
+x += 1     -- também: -=  *=  /=  //=  %=  ^=  ..=
+s ..= "!"  -- concatenação composta
+```
+
+## Expressão if-then-else
+
+```lua
+local speed = if sprinting then 32 else 16
+```
+
+- O `else` é **obrigatório**.
+- **Não existe `elseif`** nessa forma — é erro de parse. Multi-ramo usa o `if` statement comum:
+
+```lua
+-- ERRADO: parse error
+-- local x = if a then 1 elseif b then 2 else 3
+
+-- CERTO
+local x
+if a then
+    x = 1
+elseif b then
+    x = 2
+else
+    x = 3
+end
+```
+
+## Floor division
+
+```lua
+local pages = totalItems // itemsPerPage -- arredonda para baixo
+local half = #list // 2                  -- índice do meio (int, não 4.5)
+-- 1 // 0 = inf, 0 // 0 = NaN (sem erro de runtime)
+```
+
+## Literais numéricos
+
+Separadores `_` e literais binários:
+
+```lua
+local mask = 0xFF_FF
+local flags = 0b1010
+```
+
+## `const`
+
+`const` congela o **binding** (o valor continua mutável se for tabela — para congelar de verdade use `table.freeze`):
+
+```lua
+const MAX_RETRIES = 3
+-- MAX_RETRIES = 4 -- erro de compilação: binding const não pode ser reatribuído
+```
+
+## Iteração generalizada
+
+```lua
+local t = { a = 1, b = 2 }
+for k, v in t do print(k, v) end        -- sem pairs()
+for i, v in { "x", "y" } do print(i, v) end -- sem ipairs()
+```
+
+Funciona com qualquer tabela; customiza via metamethod `__iter`. Diferença crítica: `ipairs` **para no primeiro `nil`**; a generalizada percorre tudo.
+
+## Atributos
+
+```lua
+@native function fastMath(n) return n * 2 end -- força codegen nativo desta função
+--!native                                         -- codegen nativo do arquivo inteiro
+@deprecated function old() end -- marca como obsoleta (aparece no analyze)
+```
+
+## Comparação e precedência
+
+```lua
+-- not x == y  parseia como (not x) == y  -- linter ComparisonPrecedence
+local ready = not (x == y) -- parênteses explícitos
+```

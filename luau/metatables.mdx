@@ -1,0 +1,80 @@
+---
+title: "Luau: metatables"
+description: "Metamethods completos, weak tables, __metatable e as regras de coerção do Luau."
+---
+
+Metatables controlam o comportamento de tabelas (e de outros tipos) sob operações. Em Luau o mecanismo é o mesmo de Lua 5.1, com diferenças pontuais.
+
+## Índice completo de metamethods
+
+| Metamethod | Dispara quando | Uso típico |
+|---|---|---|
+| `__index` | leitura de campo ausente (tabela ou função) | protótipos/OOP, lookup dinâmico |
+| `__newindex` | escrita de campo ausente | proxies, propriedades computadas, tracking |
+| `__call` | a tabela é chamada como função | functors, wrappers |
+| `__tostring` | `tostring()` / print | representação legível |
+| `__len` | operador `#` | comprimento custom |
+| `__concat` | operador `..` | concatenação custom |
+| `__eq` | `==` entre tabelas | igualdade por campo |
+| `__lt`, `__le` | `<`, `<=` | ordenação custom (`__le` também cobre `>` via negação em Lua 5.1; em Luau, `>` e `>=` usam `__lt`/`__le` invertidos) |
+| `__unm` | unário `-` | negação custom |
+| `__add` `__sub` `__mul` `__div` `__mod` `__pow` `__idiv` | aritmética | álgebra de vetores, unidades |
+| `__iter` | `for ... in t` | iteração custom (extensão Luau) |
+| `__mode` | coleta de GC | weak tables (`"k"`, `"v"`, `"kv"`) |
+| `__metatable` | `getmetatable()` | trava a metatable (retorna o valor dela; `setmetatable` erro) |
+
+**Não existem em Luau:** `__gc`, `__close`, `__name` (esta é só de Lua 5.4).
+
+## OOP com metatable
+
+```lua
+local Feature = {}
+Feature.__index = Feature
+
+function Feature.new(name)
+    local self = setmetatable({}, Feature)
+    self.name = name
+    self.enabled = false
+    return self
+end
+
+function Feature:toggle()
+    self.enabled = not self.enabled
+    return self.enabled
+end
+```
+
+Regra de performance: **campos na tabela, métodos na metatable**, `__index` apontando pra própria metatable. Acesso com ponto (`obj.name`) — nome conhecido em tempo de compilação.
+
+## Proxy com `__newindex` e `__index`
+
+```lua
+local function readOnly(t)
+    local proxy = setmetatable({}, {
+        __index = t,
+        __newindex = function() error("read-only table", 2) end,
+        __metatable = "locked",
+    })
+    return proxy
+end
+
+local G = readOnly({ ESP = true, Aimbot = false })
+print(G.ESP)          -- true
+-- G.ESP = false      -- erro: read-only table
+-- getmetatable(G)    -- "locked" (a metatable real fica inacessível)
+```
+
+## Weak tables
+
+```lua
+local cache = setmetatable({}, { __mode = "k" }) -- chaves fracas: entradas somem quando a chave morre
+cache[player] = drawingObjects[player]
+```
+
+Útil pra cache por-entidade (ex.: objetos Drawing por jogador) sem vazar memória quando o jogador sai.
+
+## Diferenças do Luau
+
+- `__eq` só dispara com `rawequal`-comparáveis — duas tabelas diferentes sempre comparam desiguais sem `__eq`, e `__eq` **não** roda se os operandos são tipos primitivos.
+- Identidade de closures pode mudar (closure caching) — **não** use funções como chave de tabela.
+- Coerção: enum properties aceitam número/string (`part.Material = 816` funciona), mas use sempre o nome completo do enum (`Enum.Material.Plastic`).
